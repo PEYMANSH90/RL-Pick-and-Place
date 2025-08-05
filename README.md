@@ -7,13 +7,13 @@ This repository implements reinforcement learning (RL) based control strategies 
 ## 📁 Repository Structure
 
 ```
-RL-pick_and_place/
-├── section2.1/          # DH Convention Implementation
-├── section2.2/          # IK Solver
-├── section2.3/          # IS Solver  
-├── section2.4/          # RL-based Torque Control
-├── results/             # Training results and plots
-└── README.md           # This file
+RL-Pick-and-Place/
+├── section2.1 DH convention/     # DH Convention Implementation
+├── section2.2 IK Solver/         # IK Solver
+├── section2.3 IS solver/         # IS Solver  
+├── section2.4 RL picking/        # RL-based Torque Control
+├── results/                      # Training results and plots
+└── README.md                     # This file
 ```
 
 ## 🎯 Project Overview
@@ -36,7 +36,7 @@ pip install numpy matplotlib stable-baselines3 gymnasium
 
 ### Running the RL Control (Section 2.4)
 ```bash
-cd section2.4/
+cd "section2.4 RL picking"/
 python "in picking.py"
 ```
 
