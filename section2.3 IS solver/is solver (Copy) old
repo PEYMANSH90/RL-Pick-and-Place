@@ -1,0 +1,209 @@
+import numpy as np
+import sympy as sp
+from scipy.optimize import minimize
+
+# Import the valid joint configurations from section 2.2 (WITHIN JOINT LIMITS)
+# These are the 7 valid configurations that achieved target pose [0.5, 0, 0.5] within joint limits
+
+valid_configurations = [
+    [-0.4305, 1.4318, -1.9089],  # Config 1
+    [-0.3578, 0.1440, 1.9776],   # Config 2
+    [-0.8283, 0.4388, 1.5521],   # Config 3
+    [-0.5110, 0.2330, 1.8341],   # Config 4
+    [-1.0907, 0.6194, 1.3365],   # Config 5
+    [-0.6461, 1.4827, -1.7116],  # Config 6
+    [-1.0768, 0.6098, 1.3473]    # Config 7
+]
+
+# Robot parameters (mass, length, etc.)
+# Assuming typical values for a 6-DOF manipulator
+masses = [70, 60, 50, 30, 20, 10]  # kg for B1-B6
+link_lengths = [0.15, 0.475, 0.5, 0, 0.165, 0]  # a length for B1-B6
+g = 9.81  # m/s^2
+
+# Joint limits for reference (from section 2.2)
+joint_limits = [(-1.1, 1.92), (-2.62, 2.62), (-2.0, 2.0)]
+
+def calculate_gravity_torque(joint_angles):
+    """
+    Calculate gravity-induced torques for the robot configuration
+    Simplified gravity compensation model
+    """
+    # Fixed joints (J1, J4, J6 = 0)
+    theta1, theta4, theta6 = 0, 0, 0
+    theta2, theta3, theta5 = joint_angles
+    
+    # Calculate gravity torques for each joint
+    # Simplified model: gravity torque = mass * g * effective_arm_length * cos(angle)
+    
+    # Joint 2 gravity torque
+    tau2_gravity = masses[1] * g * link_lengths[1] * np.cos(theta2 - np.pi/2)
+    
+    # Joint 3 gravity torque  
+    tau3_gravity = masses[2] * g * link_lengths[2] * np.cos(theta3 + np.pi/2)
+    
+    # Joint 5 gravity torque
+    tau5_gravity = masses[4] * g * link_lengths[4] * np.cos(theta5 - np.pi/2)
+    
+    return np.array([tau2_gravity, tau3_gravity, tau5_gravity])
+
+def calculate_friction_torque(joint_angles, joint_velocities=None):
+    """
+    Calculate friction torques (Coulomb + viscous friction)
+    """
+    if joint_velocities is None:
+        joint_velocities = np.zeros(3)  # Static case
+    
+    # Friction coefficients
+    coulomb_friction = [0.1, 0.1, 0.1]  # Nm
+    viscous_friction = [0.05, 0.05, 0.05]  # Nm/(rad/s)
+    
+    friction_torques = []
+    for i in range(3):
+        # Coulomb friction (sign of velocity)
+        coulomb = coulomb_friction[i] * np.sign(joint_velocities[i]) if abs(joint_velocities[i]) > 0.01 else 0
+        # Viscous friction
+        viscous = viscous_friction[i] * joint_velocities[i]
+        friction_torques.append(coulomb + viscous)
+    
+    return np.array(friction_torques)
+
+def calculate_inertia_torque(joint_angles, joint_accelerations=None):
+    """
+    Calculate inertia torques (simplified model)
+    """
+    if joint_accelerations is None:
+        joint_accelerations = np.zeros(3)  # Static case
+    
+    # Simplified inertia matrix (diagonal approximation)
+    inertia_matrix = np.diag([0.5, 0.4, 0.3])  # kg⋅m²
+    
+    inertia_torques = inertia_matrix @ joint_accelerations
+    return inertia_torques
+
+def calculate_total_torque(joint_angles, joint_velocities=None, joint_accelerations=None):
+    """
+    Calculate total torque for a given joint configuration
+    Total torque = Gravity + Friction + Inertia
+    """
+    gravity_torque = calculate_gravity_torque(joint_angles)
+    friction_torque = calculate_friction_torque(joint_angles, joint_velocities)
+    inertia_torque = calculate_inertia_torque(joint_angles, joint_accelerations)
+    
+    total_torque = gravity_torque + friction_torque + inertia_torque
+    return total_torque, gravity_torque, friction_torque, inertia_torque
+
+def check_joint_limits(joint_angles):
+    """
+    Check if joint configuration is within limits (for reference only)
+    """
+    violations = []
+    for i, (angle, (low, high)) in enumerate(zip(joint_angles, joint_limits)):
+        if angle < low or angle > high:
+            violations.append(f"J{i+2}: {angle:.4f} (limits: [{low}, {high}])")
+    return violations
+
+# Calculate torques for each valid configuration
+print("🔧 Section 2.3: Joint Torque Analysis (WITHIN JOINT LIMITS)")
+print("=" * 70)
+
+results = []
+
+for i, config in enumerate(valid_configurations):
+    print(f"\n📊 Configuration {i+1}: J2={config[0]:.4f}, J3={config[1]:.4f}, J5={config[2]:.4f}")
+    
+    # Check joint limits (should all be within limits now)
+    violations = check_joint_limits(config)
+    if violations:
+        print(f"   ⚠️  Joint limit violations: {', '.join(violations)}")
+    else:
+        print(f"   ✅ All joints within limits")
+    
+    # Calculate torques (static case - no velocity/acceleration)
+    total_torque, gravity_torque, friction_torque, inertia_torque = calculate_total_torque(config)
+    
+    # Store results
+    result = {
+        'config_id': i+1,
+        'joint_angles': config,
+        'total_torque': total_torque,
+        'gravity_torque': gravity_torque,
+        'friction_torque': friction_torque,
+        'inertia_torque': inertia_torque,
+        'total_torque_magnitude': np.linalg.norm(total_torque),
+        'limit_violations': violations
+    }
+    results.append(result)
+    
+    print(f"   🔧 Joint Torques (Nm):")
+    print(f"      J2: {total_torque[0]:.4f} (G: {gravity_torque[0]:.4f}, F: {friction_torque[0]:.4f}, I: {inertia_torque[0]:.4f})")
+    print(f"      J3: {total_torque[1]:.4f} (G: {gravity_torque[1]:.4f}, F: {friction_torque[1]:.4f}, I: {inertia_torque[1]:.4f})")
+    print(f"      J5: {total_torque[2]:.4f} (G: {gravity_torque[2]:.4f}, F: {friction_torque[2]:.4f}, I: {inertia_torque[2]:.4f})")
+    print(f"   📈 Total Torque Magnitude: {result['total_torque_magnitude']:.4f} Nm")
+
+# Summary table
+print("\n" + "=" * 100)
+print("📋 SUMMARY: Joint Torque Analysis for Valid Configurations (WITHIN JOINT LIMITS)")
+print("=" * 100)
+print(f"{'Config':<6} {'J2 (rad)':<10} {'J3 (rad)':<10} {'J5 (rad)':<10} {'Total Torque (Nm)':<15} {'Status':<15}")
+print("-" * 100)
+
+for result in results:
+    config = result['joint_angles']
+    total_mag = result['total_torque_magnitude']
+    status = "Within Limits" if not result['limit_violations'] else "Outside Limits"
+    print(f"{result['config_id']:<6} {config[0]:<10.4f} {config[1]:<10.4f} {config[2]:<10.4f} {total_mag:<15.4f} {status:<15}")
+
+# Find optimal configuration (minimum total torque)
+if results:
+    optimal_config = min(results, key=lambda x: x['total_torque_magnitude'])
+    print(f"\n🏆 OPTIMAL CONFIGURATION (Minimum Total Torque):")
+    print(f"   Config {optimal_config['config_id']}: J2={optimal_config['joint_angles'][0]:.4f}, J3={optimal_config['joint_angles'][1]:.4f}, J5={optimal_config['joint_angles'][2]:.4f}")
+    print(f"   Total Torque: {optimal_config['total_torque_magnitude']:.4f} Nm")
+    
+    # Detailed breakdown of optimal configuration
+    print(f"\n🔍 Detailed Torque Breakdown for Optimal Configuration:")
+    print(f"   Gravity Torques: J2={optimal_config['gravity_torque'][0]:.4f}, J3={optimal_config['gravity_torque'][1]:.4f}, J5={optimal_config['gravity_torque'][2]:.4f} Nm")
+    print(f"   Friction Torques: J2={optimal_config['friction_torque'][0]:.4f}, J3={optimal_config['friction_torque'][1]:.4f}, J5={optimal_config['friction_torque'][2]:.4f} Nm")
+    print(f"   Inertia Torques: J2={optimal_config['inertia_torque'][0]:.4f}, J3={optimal_config['inertia_torque'][1]:.4f}, J5={optimal_config['inertia_torque'][2]:.4f} Nm")
+
+# Statistics
+total_torques = [r['total_torque_magnitude'] for r in results]
+print(f"\n📊 TORQUE STATISTICS:")
+print(f"   Average Total Torque: {np.mean(total_torques):.4f} Nm")
+print(f"   Minimum Total Torque: {np.min(total_torques):.4f} Nm")
+print(f"   Maximum Total Torque: {np.max(total_torques):.4f} Nm")
+print(f"   Standard Deviation: {np.std(total_torques):.4f} Nm")
+
+print(f"\n✅ Analysis Complete: {len(results)} configurations analyzed (ALL WITHIN JOINT LIMITS)")
+
+print("🔍 IS SOLVER: FULL 6-JOINT GRAVITY TORQUE CALCULATION")
+print("=" * 70)
+print(f"Masses: {masses}")
+print(f"Link lengths: {link_lengths}")
+
+for idx, jk in enumerate(valid_configurations):
+    # Compose full 6-joint vector: [J1, J2, J3, J4, J5, J6]
+    joint_angles = [0, jk[0], jk[1], 0, jk[2], 0]
+    print(f"\nConfig {idx+1}: J2={jk[0]:.4f}, J3={jk[1]:.4f}, J5={jk[2]:.4f}")
+    torques = []
+    for i in range(6):
+        if i == 1:  # J2
+            theta = joint_angles[i] - np.pi/2
+        elif i == 2:  # J3
+            theta = joint_angles[i] + np.pi/2
+        elif i == 4:  # J5
+            theta = joint_angles[i] - np.pi/2
+        else:
+            theta = joint_angles[i]
+        tau = masses[i] * g * link_lengths[i] * np.cos(theta)
+        torques.append(tau)
+        print(f"  J{i+1}: {masses[i]} * {g} * {link_lengths[i]} * cos({theta:.4f}) = {tau:.4f} Nm")
+    torques = np.array(torques)
+    total_abs = np.sum(np.abs(torques))
+    total_norm = np.linalg.norm(torques)
+    print(f"  Sum of absolute torques: {total_abs:.4f} Nm")
+    print(f"  Euclidean norm of torques: {total_norm:.4f} Nm")
+
+print("=" * 70)
+print("Done.")

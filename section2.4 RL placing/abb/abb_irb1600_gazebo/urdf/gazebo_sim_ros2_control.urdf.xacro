@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="abb_irb1600_6_12">
+
+  <!-- Import the main robot macro -->
+  <xacro:include filename="$(find abb_irb1600_support)/urdf/irb1600_6_12_macro.xacro" />
+  
+  <!-- Import Gazebo materials -->
+  <xacro:include filename="$(find abb_resources)/urdf/common_materials.xacro" />
+  
+  <!-- Import Gazebo colors -->
+  <xacro:include filename="$(find abb_resources)/urdf/gazebo_colors.xacro" />
+
+  <!-- Create the robot -->
+  <xacro:abb_irb1600_6_12 prefix="" />
+
+  <!-- Gazebo plugin for ROS 2 Control -->
+  <gazebo>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <parameters>$(find abb_irb1600_gazebo)/config/ros2_controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <!-- Gazebo colors for links -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_1">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_2">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_3">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_4">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_5">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <gazebo reference="link_6">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+</robot> 
