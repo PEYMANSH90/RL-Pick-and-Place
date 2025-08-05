@@ -1,0 +1,228 @@
+from ikpy.chain import Chain
+from ikpy.link import URDFLink
+from scipy.spatial.transform import Rotation as R
+import numpy as np
+import pandas as pd
+from scipy.spatial.distance import cdist
+
+# IRB1600 Joint Limits (in radians)
+joint_limits = [
+    (-np.deg2rad(180), np.deg2rad(180)),   # Joint 1
+    (-np.deg2rad(63), np.deg2rad(110)),    # Joint 2
+    (-np.deg2rad(235), np.deg2rad(55)),    # Joint 3
+    (-np.deg2rad(200), np.deg2rad(200)),   # Joint 4
+    (-np.deg2rad(115), np.deg2rad(115)),   # Joint 5
+    (-np.deg2rad(400), np.deg2rad(400)),   # Joint 6
+]
+
+# IRB1600 Link Lengths (in meters) - from ABB specifications
+link_lengths = {
+    "base_link": 0.5,    # Base height
+    "link_1": 0.15,      # Link 1 length
+    "link_2": 0.475,     # Link 2 length
+    "link_3": 0.15,      # Link 3 length
+    "link_4": 0.72,      # Link 4 length
+    "link_5": 0.0,       # Link 5 length (wrist)
+    "link_6": 0.085,     # Link 6 length (tool)
+}
+
+# Simplified IRB1600 Link Chain with correct dimensions
+robot_chain = Chain(name='irb1600', links=[
+    URDFLink(
+        name="base_link",
+        origin_translation=[0, 0, link_lengths["base_link"]],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 0, 1],
+        bounds=None
+    ),
+    URDFLink(
+        name="link_1",
+        origin_translation=[0, 0, link_lengths["link_1"]],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 0, 1],
+        bounds=joint_limits[0]
+    ),
+    URDFLink(
+        name="link_2",
+        origin_translation=[link_lengths["link_2"], 0, 0],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 1, 0],
+        bounds=joint_limits[1]
+    ),
+    URDFLink(
+        name="link_3",
+        origin_translation=[link_lengths["link_3"], 0, 0],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 1, 0],
+        bounds=joint_limits[2]
+    ),
+    URDFLink(
+        name="link_4",
+        origin_translation=[link_lengths["link_4"], 0, 0],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 1, 0],
+        bounds=joint_limits[3]
+    ),
+    URDFLink(
+        name="link_5",
+        origin_translation=[0, 0, link_lengths["link_5"]],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 1, 0],
+        bounds=joint_limits[4]
+    ),
+    URDFLink(
+        name="link_6",
+        origin_translation=[0, 0, link_lengths["link_6"]],
+        origin_orientation=[0, 0, 0],
+        rotation=[0, 1, 0],
+        bounds=joint_limits[5]
+    ),
+])
+
+# Target EE position (fixed) - within IRB1600's reach (max ~1.45m)
+target_position = np.array([0.8, 0.0, 0.8])  # Closer to base for testing
+
+# Minimum distance between links to avoid self-collision (in meters)
+MIN_LINK_DISTANCE = 0.01
+
+# Minimum height from floor (in meters)
+MIN_FLOOR_HEIGHT = 0.01
+
+def check_self_collision(chain, joint_angles):
+    """Check if any links are too close to each other."""
+    # Get positions of all links
+    link_positions = []
+    for i in range(len(chain.links)):
+        frame = chain.forward_kinematics(joint_angles, full_kinematics=True)[i]
+        link_positions.append(frame[:3, 3])
+    
+    # Check distances between all pairs of links
+    for i in range(len(link_positions)):
+        for j in range(i+1, len(link_positions)):
+            if np.linalg.norm(link_positions[i] - link_positions[j]) < MIN_LINK_DISTANCE:
+                return True
+    return False
+
+def check_floor_constraint(chain, joint_angles):
+    """Check if any link is below the minimum floor height."""
+    for i in range(len(chain.links)):
+        frame = chain.forward_kinematics(joint_angles, full_kinematics=True)[i]
+        if frame[2, 3] < MIN_FLOOR_HEIGHT:
+            return False
+    return True
+
+def check_singularity(jacobian):
+    """Check if the robot is in a singular configuration."""
+    # Calculate the condition number of the Jacobian
+    try:
+        condition_number = np.linalg.cond(jacobian)
+        return condition_number > 1000  # Threshold for singularity
+    except:
+        return True
+
+def print_chain_info(chain):
+    """Print information about the robot chain."""
+    print("\nRobot Chain Information:")
+    print(f"Number of links: {len(chain.links)}")
+    print("\nLink Details:")
+    for i, link in enumerate(chain.links):
+        print(f"\nLink {i}:")
+        print(f"  Name: {link.name}")
+        print(f"  Translation: {link.origin_translation}")
+        print(f"  Orientation: {link.origin_orientation}")
+        print(f"  Rotation: {link.rotation}")
+        if link.bounds:
+            print(f"  Joint Limits: {np.rad2deg(link.bounds[0]):.1f}° to {np.rad2deg(link.bounds[1]):.1f}°")
+
+def check_target_reachability(chain, target_pos):
+    """Check if target position is within robot's reach."""
+    # Calculate total arm length
+    total_length = sum(link_lengths.values())
+    distance = np.linalg.norm(target_pos)
+    print(f"\nTarget Position Analysis:")
+    print(f"Target position: {target_pos}")
+    print(f"Distance from base: {distance:.3f}m")
+    print(f"Total arm length: {total_length:.3f}m")
+    print(f"Maximum reach: {total_length:.3f}m")
+    return distance <= total_length
+
+# Print chain information
+print_chain_info(robot_chain)
+
+# Check target reachability
+if not check_target_reachability(robot_chain, target_position):
+    print("\nWARNING: Target position might be unreachable!")
+
+# RPY sweep with 5° resolution
+angles = np.arange(-180, 181, 5)
+results = []
+
+# Debug counters
+total_attempts = 0
+joint_limit_violations = 0
+self_collisions = 0
+floor_violations = 0
+singularities = 0
+ik_failures = 0
+
+print("\nStarting IK calculations...")
+for roll in angles:
+    for pitch in angles:
+        for yaw in angles:
+            total_attempts += 1
+            if total_attempts % 10000 == 0:
+                print(f"Processed {total_attempts} configurations...")
+                
+            rot_matrix = R.from_euler('xyz', [roll, pitch, yaw], degrees=True).as_matrix()
+            target_frame = np.eye(4)
+            target_frame[:3, :3] = rot_matrix
+            target_frame[:3, 3] = target_position
+            
+            try:
+                joint_angles = robot_chain.inverse_kinematics(target_frame)
+                
+                # Check all constraints
+                if not all(joint_limits[i][0] <= joint_angles[i+1] <= joint_limits[i][1] for i in range(6)):
+                    joint_limit_violations += 1
+                    continue
+                    
+                if check_self_collision(robot_chain, joint_angles):
+                    self_collisions += 1
+                    continue
+                    
+                if not check_floor_constraint(robot_chain, joint_angles):
+                    floor_violations += 1
+                    continue
+                    
+                if check_singularity(robot_chain.jacobian(joint_angles)):
+                    singularities += 1
+                    continue
+                
+                    results.append({
+                        "Roll": roll,
+                        "Pitch": pitch,
+                        "Yaw": yaw,
+                        "θ1": round(np.rad2deg(joint_angles[1]), 2),
+                        "θ2": round(np.rad2deg(joint_angles[2]), 2),
+                        "θ3": round(np.rad2deg(joint_angles[3]), 2),
+                        "θ4": round(np.rad2deg(joint_angles[4]), 2),
+                        "θ5": round(np.rad2deg(joint_angles[5]), 2),
+                        "θ6": round(np.rad2deg(joint_angles[6]), 2)
+                    })
+            except Exception as e:
+                ik_failures += 1
+                if ik_failures <= 5:  # Print first 5 errors only
+                    print(f"\nIK Error: {str(e)}")
+                continue
+
+# Output results
+df = pd.DataFrame(results)
+df.to_csv("reachable_rpy_configurations.csv", index=False)
+print("\nDebug Statistics:")
+print(f"Total attempts: {total_attempts}")
+print(f"Joint limit violations: {joint_limit_violations}")
+print(f"Self-collisions: {self_collisions}")
+print(f"Floor violations: {floor_violations}")
+print(f"Singularities: {singularities}")
+print(f"IK failures: {ik_failures}")
+print(f"\nValid configurations: {len(df)}")
