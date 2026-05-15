@@ -14,33 +14,33 @@ The robot platform is an **ABB IRB1600-6/1.2** (6-axis manipulator). The control
 
 ```
 RL-Pick-and-Place/
-├── pick_place/                  # Main Python package
+├── pick_place/
 │   ├── kinematics/
-│   │   ├── forward_kinematics.py   # DH transform chain, FK function, robot constants
-│   │   ├── inverse_kinematics.py   # Multi-start L-BFGS-B IK solver (J2/J3/J5)
-│   │   └── workspace.py            # Workspace sampling and 3-D visualisation
+│   │   ├── forward_kinematics.py
+│   │   ├── inverse_kinematics.py
+│   │   └── workspace.py
 │   ├── dynamics/
-│   │   └── inverse_statics.py      # RNE-based joint torque computation (gravity + payload)
+│   │   └── inverse_statics.py
 │   ├── environments/
-│   │   └── joint_control_env.py    # Custom Gymnasium environment for torque tracking
+│   │   └── joint_control_env.py
 │   ├── agents/
-│   │   ├── networks.py             # Actor and Critic MLPs (PyTorch, from scratch)
-│   │   ├── replay_buffer.py        # Fixed-capacity circular replay buffer
-│   │   └── td3.py                  # Full TD3 algorithm + TD3Config dataclass
+│   │   ├── networks.py
+│   │   ├── replay_buffer.py
+│   │   └── td3.py
 │   ├── training/
-│   │   ├── trainer.py              # Training loop with curriculum progression
-│   │   └── curriculum.py           # CurriculumScheduler and level definitions
+│   │   ├── trainer.py
+│   │   └── curriculum.py
 │   └── utils/
-│       ├── logging.py              # get_logger() — stdout handler setup
-│       ├── plotting.py             # Training-curve and load-tracking plots
-│       └── random.py               # set_seed() — Python / NumPy / PyTorch
+│       ├── logging.py
+│       ├── plotting.py
+│       └── random.py
 ├── conf/
-│   └── default.py                  # Typed dataclass config (EnvConfig, TD3Config, …)
+│   └── default.py
 ├── scripts/
-│   ├── train.py                    # CLI entry point for training
-│   └── evaluate.py                 # CLI entry point for evaluation
-├── tests/                          # Unit tests
-├── ros2_ws/                        # ROS 2 workspace (Gazebo + MoveIt integration)
+│   ├── train.py
+│   └── evaluate.py
+├── tests/
+├── ros2_ws/
 ├── requirements.txt
 └── setup.py
 ```
@@ -112,8 +112,6 @@ across stages (transfer learning).
 ```bash
 git clone https://github.com/PEYMANSH90/RL-Pick-and-Place.git
 cd RL-Pick-and-Place
-
-# Install in editable mode (registers pick-place-train / pick-place-evaluate CLIs)
 pip install -e .
 ```
 
@@ -126,19 +124,12 @@ Python ≥ 3.10 required.
 ### Training
 
 ```bash
-# Default config — paper hyperparameters, 200-episode budget
 python scripts/train.py
-
-# CLI overrides
 python scripts/train.py --max-episodes 100 --device cuda --seed 42
-
-# Quick smoke-test (10 episodes)
 python scripts/train.py --max-episodes 10 --log-interval 1
 ```
 
-Checkpoints are saved to `checkpoints/level_0/`, `checkpoints/level_1/`,
-`checkpoints/level_2/`, and `checkpoints/final/`.
-A training-curve plot is written to `results/`.
+Checkpoints are saved under `checkpoints/`; a training-curve plot is written to `results/`.
 
 ### Evaluation
 
@@ -146,9 +137,6 @@ A training-curve plot is written to `results/`.
 python scripts/evaluate.py --checkpoint checkpoints/final
 python scripts/evaluate.py --checkpoint checkpoints/final --episodes 5
 ```
-
-Prints MSE, MAE, max tracking error and total reward per episode.
-Saves a two-panel load-tracking plot to `results/`.
 
 ### Library API
 
@@ -158,33 +146,12 @@ from pick_place.dynamics.inverse_statics import InverseStatics, PAPER_CONFIGURAT
 from pick_place.agents.td3 import TD3Agent, TD3Config
 from pick_place.environments.joint_control_env import JointControlEnv
 
-# Compute joint torques for all paper configurations
 solver = InverseStatics(payload_kg=52.0)
-results = solver.evaluate_configurations(PAPER_CONFIGURATIONS)
 best_label, best = solver.minimum_torque_config(PAPER_CONFIGURATIONS)
 
-# Train an agent
 env   = JointControlEnv(load_scale=1.0)
 agent = TD3Agent(obs_dim=6, action_dim=1, action_max=2.0)
 ```
-
----
-
-## Key Design Principles
-
-- **TD3 from scratch** — no stable-baselines3 or other RL library.
-  `networks.py`, `replay_buffer.py`, and `td3.py` contain the complete
-  implementation so every component is inspectable and modifiable.
-
-- **Single responsibility** — the environment knows nothing about training;
-  the agent knows nothing about curriculum; the trainer owns the loop.
-
-- **Config-driven** — all hyperparameters live in `conf/default.py` as
-  typed Python dataclasses.  CLI flags override individual fields without
-  touching the config file.
-
-- **No side effects on import** — every module is a library; no code runs
-  at import time.
 
 ---
 
